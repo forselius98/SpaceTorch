@@ -96,14 +96,20 @@ contract SpaceTorchTest is Test {
         assertEq(token.balanceOf(alice), 200 * 10 ** 18);
     }
 
-    function test_CannotClaimWhenFaucetIsEmpty() public {
-        vm.warp(2 days);
+   
+function test_CannotClaimWhenFaucetIsEmpty() public {
+    vm.warp(2 days);
 
-        vm.prank(address(token));
-        token.transfer(bob, token.balanceOf(address(token)));
+    deal(
+        address(token),
+        address(token),
+        0,
+        true
+    );
 
-        vm.prank(alice);
-        vm.expectRevert(bytes("SpaceTorch: Faucet empty"));
-        token.claimFaucet();
-    }
+    vm.prank(alice);
+    vm.expectRevert(bytes("SpaceTorch: Faucet empty"));
+    token.claimFaucet();
+}
+
 }
