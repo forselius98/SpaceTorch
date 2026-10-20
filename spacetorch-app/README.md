@@ -205,21 +205,57 @@ Each wallet can claim 100 TORCH once every 24 hours, subject to the faucet's ava
 
 ## 📁 Project Structure
 
-The project contains separate smart contract and frontend applications.
+SpaceTorch consists of two main parts: the smart contracts and the frontend application.
 
+```text
 SpaceTorch/
 ├── contracts/
 │   ├── src/
+│   │   └── SpaceTorch.sol
 │   ├── test/
+│   │   └── SpaceTorch.t.sol
 │   ├── script/
+│   │   └── DeploySpaceTorch.s.sol
+│   ├── lib/
 │   ├── foundry.toml
+│   ├── remappings.txt
 │   └── README.md
 │
 └── spacetorch-app/
     ├── app/
+    │   ├── page.tsx
+    │   ├── layout.tsx
+    │   ├── providers.tsx
+    │   └── contracts.ts
     ├── public/
+    │   └── Space.png
     ├── package.json
+    ├── package-lock.json
+    ├── tsconfig.json
     └── ...
+```
+
+### Smart Contracts — `contracts/`
+
+The smart contracts are written in Solidity and developed using Foundry.
+
+- `src/SpaceTorch.sol` — ERC-20 token, minting, burning, and faucet functionality.
+- `test/SpaceTorch.t.sol` — Automated smart contract tests.
+- `script/DeploySpaceTorch.s.sol` — Deployment script.
+- `foundry.toml` — Foundry project configuration.
+- `lib/` — Smart contract dependencies, including OpenZeppelin.
+
+### Frontend — `spacetorch-app/`
+
+The frontend is built with Next.js, TypeScript, and Tailwind CSS.
+
+- `app/page.tsx` — Main landing page and interactive game interface.
+- `app/layout.tsx` — Root layout for the application.
+- `app/providers.tsx` — Wagmi and React Query providers.
+- `app/contracts.ts` — Contract addresses, ABI definitions, and token constants.
+- `public/` — Images and other static assets.
+- `package.json` — Frontend dependencies and scripts.
+
 
 # 🎯 Project Goal
 
