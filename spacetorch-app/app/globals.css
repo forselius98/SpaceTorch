@@ -17,3 +17,23 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes rocket-launch {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+
+  20% {
+    transform: translateY(10px) rotate(-5deg);
+  }
+
+  100% {
+    transform: translateY(-350px) rotate(5deg);
+    opacity: 0;
+  }
+}
+
+.animate-rocket-launch {
+  animation: rocket-launch 1.8s ease-in forwards;
+}

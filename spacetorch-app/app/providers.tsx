@@ -12,6 +12,7 @@ const config = createConfig({
   transports: {
     [sepolia.id]: http(),
   },
+  ssr: true,
 });
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -19,7 +20,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <WagmiProvider config={config}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
     </WagmiProvider>
   );
 }
+

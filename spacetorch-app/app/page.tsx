@@ -1,9 +1,9 @@
 "use client";
-
+import FuelRocketGame from "../app/components/FuelRocketGame";
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import {
-  useAccount,
+  useConnection,
   useConnect,
   useDisconnect,
   useChainId,
@@ -23,7 +23,7 @@ import {
 } from "./contracts";
 
 export default function Home() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useConnection();
   const { connectors, connect, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
@@ -32,6 +32,7 @@ export default function Home() {
   const [message, setMessage] = useState("");
 
   const onSepolia = chainId === SEPOLIA_CHAIN_ID;
+  const walletConnected = isConnected;
 
   // Read the user's TORCH balance.
   const { data: balance, refetch: refetchBalance } = useReadContract({
@@ -62,19 +63,19 @@ export default function Home() {
 
   const {
     data: claimHash,
-    writeContractAsync: sendClaim,
+    mutateAsync: sendClaim,
     isPending: isClaimPending,
   } = useWriteContract();
 
   const {
     data: approvalHash,
-    writeContractAsync: sendApproval,
+    mutateAsync: sendApproval,
     isPending: isApprovalPending,
   } = useWriteContract();
 
   const {
     data: playHash,
-    writeContractAsync: sendPlay,
+    mutateAsync: sendPlay,
     isPending: isPlayPending,
   } = useWriteContract();
 
@@ -93,7 +94,6 @@ export default function Home() {
     chainId: SEPOLIA_CHAIN_ID,
   });
 
-  
   useEffect(() => {
     if (claimReceipt.isSuccess || playReceipt.isSuccess) {
       void refetchBalance();
@@ -117,7 +117,7 @@ export default function Home() {
 
   async function claimFaucet() {
     if (!isConnected || !address) {
-      setMessage("Connect our wallet first.");
+      setMessage("Connect your wallet first.");
       return;
     }
 
@@ -134,12 +134,12 @@ export default function Home() {
         functionName: "claimFaucet",
         chainId: SEPOLIA_CHAIN_ID,
       });
-      setMessage("Transaction send. Wait for confrimation.");
+      setMessage("Transaction sent. Waiting for confirmation...");
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : "Could not get faucet-transaction.",
+          : "Could not submit the faucet transaction.",
       );
     }
   }
@@ -179,7 +179,7 @@ export default function Home() {
     }
 
     if (allowance === undefined || allowance < PLAY_COST) {
-      setMessage("Please approve the game to use 10 TORCH first.CH.");
+      setMessage("Please approve the game to use 10 TORCH first.");
       return;
     }
 
@@ -202,12 +202,12 @@ export default function Home() {
   }
 
   const busy =
-  isClaimPending ||
-  isApprovalPending ||
-  isPlayPending ||
-  claimReceipt.isLoading ||
-  approvalReceipt.isLoading ||
-  playReceipt.isLoading;
+    isClaimPending ||
+    isApprovalPending ||
+    isPlayPending ||
+    claimReceipt.isLoading ||
+    approvalReceipt.isLoading ||
+    playReceipt.isLoading;
 
   return (
     <main
@@ -224,7 +224,7 @@ export default function Home() {
           🚀 SPACETORCH
         </a>
 
-        {isConnected ? (
+        {walletConnected ? (
           <button
             onClick={() => disconnect()}
             className="rounded-full border border-cyan-300/50 px-5 py-2 text-sm hover:bg-cyan-300/10"
@@ -254,12 +254,12 @@ export default function Home() {
         </p>
         <div className="mb-6 flex justify-center">
           <Image
-          src="/Spacegirl.png"
-          alt="SpaceTorch mascot holding a torch"
-          width={320}
-          height={320}
-          priority
-          className="h-auto w-48 drop-shadow-[0_0_30px_rgba(34,211,238,0.45)] md:w-64"
+            src="/Spacegirl.png"
+            alt="SpaceTorch mascot holding a torch"
+            width={320}
+            height={320}
+            priority
+            className="h-auto w-48 drop-shadow-[0_0_30px_rgba(34,211,238,0.45)] md:w-64"
           />
         </div>
 
@@ -290,14 +290,14 @@ export default function Home() {
         </div>
 
         <p className="mt-8 rounded-lg bg-black/40 px-4 py-2 text-sm text-slate-200">
-          {!isConnected
+          {!walletConnected
             ? "Connect your wallet to get started."
             : !onSepolia
               ? "Wrong network. Switch to Sepolia to use SpaceTorch."
               : "Connected to Sepolia testnet"}
         </p>
 
-        {isConnected && !onSepolia && (
+        {walletConnected && !onSepolia && (
           <button
             onClick={() => switchChain({ chainId: SEPOLIA_CHAIN_ID })}
             disabled={isSwitching}
@@ -324,7 +324,7 @@ export default function Home() {
 
           <button
             onClick={claimFaucet}
-            disabled={!isConnected || !onSepolia || busy}
+            disabled={!walletConnected || !onSepolia || busy}
             className="mt-6 rounded-full bg-cyan-300 px-7 py-3 font-bold text-[#080b22] transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isClaimPending || claimReceipt.isLoading
@@ -357,7 +357,7 @@ export default function Home() {
             <button
               onClick={approveTokens}
               disabled={
-                !isConnected ||
+                !walletConnected ||
                 !onSepolia ||
                 busy ||
                 (allowance !== undefined && allowance >= PLAY_COST)
@@ -372,7 +372,7 @@ export default function Home() {
             <button
               onClick={playChallenge}
               disabled={
-                !isConnected ||
+                !walletConnected ||
                 !onSepolia ||
                 busy ||
                 balance === undefined ||
@@ -388,6 +388,10 @@ export default function Home() {
             </button>
           </div>
         </div>
+      </section>
+
+      <section id="fuel-rocket" className="mx-auto max-w-4xl px-6 py-12">
+        <FuelRocketGame challengeScore={0} />
       </section>
 
       {message && (
