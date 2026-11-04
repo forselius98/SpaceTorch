@@ -167,7 +167,7 @@ export default function Home() {
     }
   }
 
-  async function playChallenge() {
+  async function playChallenge(guessSun: boolean) {
     if (!isConnected || !address || !onSepolia) {
       setMessage("Connect your wallet and select Sepolia first.");
       return;
@@ -186,11 +186,12 @@ export default function Home() {
     try {
       setMessage("Confirm the game transaction in your wallet.");
       await sendPlay({
-        address: TORCH_CHALLENGE_ADDRESS,
-        abi: torchChallengeAbi,
-        functionName: "play",
-        chainId: SEPOLIA_CHAIN_ID,
-      });
+  address: TORCH_CHALLENGE_ADDRESS,
+  abi: torchChallengeAbi,
+  functionName: "startCoinFlip",
+  args: [guessSun],
+  chainId: SEPOLIA_CHAIN_ID,
+});
       setMessage("Game transaction submitted. Waiting for confirmation...");
     } catch (error) {
       setMessage(
@@ -370,22 +371,40 @@ export default function Home() {
             </button>
 
             <button
-              onClick={playChallenge}
-              disabled={
-                !walletConnected ||
-                !onSepolia ||
-                busy ||
-                balance === undefined ||
-                balance < PLAY_COST ||
-                allowance === undefined ||
-                allowance < PLAY_COST
-              }
-              className="rounded-full bg-purple-400 px-7 py-3 font-bold text-[#160a2c] hover:bg-purple-300 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isPlayPending || playReceipt.isLoading
-                ? "Playing..."
-                : "Play Challenge · 10 TORCH"}
-            </button>
+  onClick={() => playChallenge(true)}
+  disabled={
+    !walletConnected ||
+    !onSepolia ||
+    busy ||
+    balance === undefined ||
+    balance < PLAY_COST ||
+    allowance === undefined ||
+    allowance < PLAY_COST
+  }
+  className="rounded-full bg-purple-400 px-7 py-3 font-bold text-[#160a2c] hover:bg-purple-300 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  {isPlayPending || playReceipt.isLoading
+    ? "Playing..."
+    : "Play SUN · 10 TORCH"}
+</button>
+
+<button
+  onClick={() => playChallenge(false)}
+  disabled={
+    !walletConnected ||
+    !onSepolia ||
+    busy ||
+    balance === undefined ||
+    balance < PLAY_COST ||
+    allowance === undefined ||
+    allowance < PLAY_COST
+  }
+  className="rounded-full bg-cyan-400 px-7 py-3 font-bold text-[#160a2c] hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  {isPlayPending || playReceipt.isLoading
+    ? "Playing..."
+    : "Play MOON · 10 TORCH"}
+</button>
           </div>
         </div>
       </section>

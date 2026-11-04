@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -5,24 +6,20 @@ import {
   useAccount,
   useChainId,
   useReadContract,
-  usePublicClient,
+  useWriteContract,
+  useWaitForTransactionReceipt,
 } from "wagmi";
+import { formatEther } from "viem";
 
 import {
   SEPOLIA_CHAIN_ID,
   SPACE_TORCH_ADDRESS,
   TORCH_CHALLENGE_ADDRESS,
-  PLAY_COST,
   spaceTorchAbi,
   torchChallengeAbi,
 } from "../contracts";
 
 const FUEL_TO_LAUNCH = 100;
-const FUEL_PER_WIN = 10;
-const STREAK_BONUS = 10;
-const BONUS_EVERY_STREAK = 3;
-const POINTS_PER_WIN = 10;
-const POINTS_PER_LAUNCH = 100;
 const POINTS_PER_LEVEL = 100;
 
 type FuelRocketGameProps = {
@@ -32,165 +29,202 @@ type FuelRocketGameProps = {
 export default function FuelRocketGame({
   challengeScore,
 }: FuelRocketGameProps) {
-   const { address, isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const publicClient = usePublicClient();
   const onSepolia = chainId === SEPOLIA_CHAIN_ID;
-const { data: onChainScore } = useReadContract({
-  address: TORCH_CHALLENGE_ADDRESS,
-  abi: torchChallengeAbi,
-  functionName: "scores",
-  args: address ? [address] : undefined,
-  query: {
-    enabled: Boolean(address) && onSepolia,
-  },
-});
-  const { data: torchBalance } = useReadContract({
-  address: SPACE_TORCH_ADDRESS,
-  abi: spaceTorchAbi,
-  functionName: "balanceOf",
-  args: address ? [address] : undefined,
-  query: {
-    enabled: Boolean(address) && onSepolia,
-  },
-});
 
-  const [fuel, setFuel] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [launches, setLaunches] = useState(0);
-  const [coinWins, setCoinWins] = useState(0);
-  const [, setChoice] = useState<"SUN" | "MOON" | null>(null);
-  const [result, setResult] = useState<"SUN" | "MOON" | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
-  const [message, setMessage] = useState(
-    "Choose Sun or Moon to collect Rocket Fuel!",
-  );
-  const [rocketLaunching, setRocketLaunching] = useState(false);
+  const enabled = Boolean(address) && onSepolia;
 
-  function getSavedNumber(key: string): number {
-    if (typeof window === "undefined") return 0;
+  // Read TORCH balance
+  const {
+    data: torchBalance,
+    refetch: refetchTorchBalance,
+  } = useReadContract({
+    address: SPACE_TORCH_ADDRESS,
+    abi: spaceTorchAbi,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: {
+      enabled,
+      refetchInterval: 5000,
+    },
+  });
 
-    const value = Number(localStorage.getItem(key) ?? 0);
-    return Number.isFinite(value) && value >= 0 ? value : 0;
-  }
+  // Read Rocket Fuel
+  const {
+    data: onChainFuel,
+    refetch: refetchFuel,
+  } = useReadContract({
+    address: TORCH_CHALLENGE_ADDRESS,
+    abi: torchChallengeAbi,
+    functionName: "fuelBalances",
+    args: address ? [address] : undefined,
+    query: {
+      enabled,
+      refetchInterval: 5000,
+    },
+  });
 
-  // Load saved mini-game progress after the first render. Scheduling the
-  // updates avoids setting state synchronously inside the effect and keeps
-  // the server and initial client render consistent in Next.js.
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setFuel(getSavedNumber("st-fuel"));
-      setStreak(getSavedNumber("st-streak"));
-      setLaunches(getSavedNumber("st-launches"));
-      setCoinWins(getSavedNumber("st-coin-wins"));
-      setHydrated(true);
-    });
+  // Read Coin Flip wins
+  const {
+    data: onChainWins,
+    refetch: refetchWins,
+  } = useReadContract({
+    address: TORCH_CHALLENGE_ADDRESS,
+    abi: torchChallengeAbi,
+    functionName: "totalWins",
+    args: address ? [address] : undefined,
+    query: {
+      enabled,
+      refetchInterval: 5000,
+    },
+  });
 
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
+  // Read Rocket launches
+  const {
+    data: onChainLaunches,
+    refetch: refetchLaunches,
+  } = useReadContract({
+    address: TORCH_CHALLENGE_ADDRESS,
+    abi: torchChallengeAbi,
+    functionName: "totalLaunches",
+    args: address ? [address] : undefined,
+    query: {
+      enabled,
+      refetchInterval: 5000,
+    },
+  });
 
-  // Save progress only after the saved values have been loaded, so the
-  // initial zero values do not overwrite the user's existing progress.
-  useEffect(() => {
-    if (!hydrated) return;
+  // Read game score
+  const {
+    data: onChainScore,
+    refetch: refetchScore,
+  } = useReadContract({
+    address: TORCH_CHALLENGE_ADDRESS,
+    abi: torchChallengeAbi,
+    functionName: "scores",
+    args: address ? [address] : undefined,
+    query: {
+      enabled,
+      refetchInterval: 5000,
+    },
+  });
 
-    localStorage.setItem("st-fuel", String(fuel));
-    localStorage.setItem("st-streak", String(streak));
-    localStorage.setItem("st-launches", String(launches));
-    localStorage.setItem("st-coin-wins", String(coinWins));
-  }, [fuel, streak, launches, coinWins, hydrated]);
+  // Check whether a Coin Flip is waiting for Chainlink VRF
+  const { data: hasPendingFlip } = useReadContract({
+    address: TORCH_CHALLENGE_ADDRESS,
+    abi: torchChallengeAbi,
+    functionName: "hasPendingFlip",
+    args: address ? [address] : undefined,
+    query: {
+      enabled,
+      refetchInterval: 5000,
+    },
+  });
 
-  // Challenge points come from the existing Sepolia contract.
-  // Rocket points and wins are local frontend progress.
+  // Launch Rocket transaction
+  const {
+    writeContractAsync,
+    data: launchHash,
+    isPending: isLaunchPending,
+  } = useWriteContract();
+
+  const launchReceipt = useWaitForTransactionReceipt({
+    hash: launchHash,
+    chainId: SEPOLIA_CHAIN_ID,
+  });
+
+  const fuel = Number(onChainFuel ?? 0);
+const launches = Number(onChainLaunches ?? 0);
+const coinWins = Number(onChainWins ?? 0);
+
   const displayedChallengeScore =
-  onChainScore !== undefined
-    ? Number(onChainScore)
-    : Math.max(0, challengeScore);
+    onChainScore !== undefined
+      ? Number(onChainScore)
+      : Math.max(0, challengeScore);
 
-const totalPoints =
-  displayedChallengeScore +
-  launches * POINTS_PER_LAUNCH +
-  coinWins * POINTS_PER_WIN;
-
+  const totalPoints = displayedChallengeScore;
   const level = Math.floor(totalPoints / POINTS_PER_LEVEL) + 1;
   const pointsIntoLevel = totalPoints % POINTS_PER_LEVEL;
-  const fuelProgress = Math.min((fuel / FUEL_TO_LAUNCH) * 100, 100);
 
-  function flipCoin(guess: "SUN" | "MOON") {
-    if (busy || fuel >= FUEL_TO_LAUNCH) return;
+  const fuelProgress = Math.min(
+    (fuel / FUEL_TO_LAUNCH) * 100,
+    100,
+  );
 
-    setBusy(true);
-    setChoice(guess);
-    setResult(null);
-    setMessage("Flipping the cosmic coin...");
+  const [rocketLaunching, setRocketLaunching] = useState(false);
+  const [message, setMessage] = useState(
+    "Choose Sun or Moon in Coin Flip to collect Rocket Fuel!",
+  );
 
-    window.setTimeout(() => {
-      const coinResult = Math.random() < 0.5 ? "SUN" : "MOON";
-      const won = guess === coinResult;
+  const busy = isLaunchPending || launchReceipt.isLoading;
 
-      setResult(coinResult);
-
-      if (won) {
-        const newStreak = streak + 1;
-        const bonus = newStreak % BONUS_EVERY_STREAK === 0 ? STREAK_BONUS : 0;
-        const earnedFuel = FUEL_PER_WIN + bonus;
-
-        setFuel((current) => Math.min(FUEL_TO_LAUNCH, current + earnedFuel));
-        setStreak(newStreak);
-        setCoinWins((current) => current + 1);
-
-        setMessage(
-          `Correct! +${earnedFuel} Rocket Fuel and +${POINTS_PER_WIN} points!${
-            bonus > 0 ? " Streak bonus unlocked!" : ""
-          }`,
-        );
-      } else {
-        setStreak(0);
-        setMessage("Not this time, space pilot! Try again.");
-      }
-
-      setBusy(false);
-    }, 600);
-  }
-
-  function launchRocket() {
-    if (fuel < FUEL_TO_LAUNCH || busy || rocketLaunching) return;
+  // Refresh contract data after a successful rocket launch
+  useEffect(() => {
+    if (!launchReceipt.isSuccess) return;
 
     setRocketLaunching(true);
-    setFuel(0);
-    setStreak(0);
-    setLaunches((current) => current + 1);
-    setChoice(null);
-    setResult(null);
     setMessage("3... 2... 1... LIFTOFF! 🚀");
 
-    window.setTimeout(() => {
+    void Promise.all([
+      refetchFuel(),
+      refetchLaunches(),
+      refetchScore(),
+      refetchWins(),
+      refetchTorchBalance(),
+    ]);
+
+    const timer = window.setTimeout(() => {
       setRocketLaunching(false);
-      setMessage(
-        `Mission complete! +${POINTS_PER_LAUNCH} points. Keep exploring the galaxy!`,
-      );
+      setMessage("Mission complete! Keep exploring the galaxy!");
     }, 1800);
-  }
 
-  function resetRocketProgress() {
-    if (busy) return;
+    return () => window.clearTimeout(timer);
+  }, [
+    launchReceipt.isSuccess,
+    refetchFuel,
+    refetchLaunches,
+    refetchScore,
+    refetchWins,
+    refetchTorchBalance,
+  ]);
 
-    setFuel(0);
-    setStreak(0);
-    setLaunches(0);
-    setCoinWins(0);
-    setChoice(null);
-    setResult(null);
-    setMessage(
-      "Rocket progress reset. Your TORCH balance and contract score are unchanged.",
-    );
+  async function launchRocket() {
+    if (!address || !onSepolia) {
+      setMessage("Connect your wallet and select Sepolia first.");
+      return;
+    }
 
-    // Clear only this mini-game's saved progress.
-    localStorage.removeItem("st-fuel");
-    localStorage.removeItem("st-streak");
-    localStorage.removeItem("st-launches");
-    localStorage.removeItem("st-coin-wins");
+    if (fuel < FUEL_TO_LAUNCH) {
+      setMessage("You need 100 Rocket Fuel to launch.");
+      return;
+    }
+
+    if (hasPendingFlip) {
+      setMessage("Please wait for your pending Coin Flip result.");
+      return;
+    }
+
+    if (busy || rocketLaunching) return;
+
+    try {
+      setMessage("Confirm the Rocket Launch transaction in your wallet.");
+
+      await writeContractAsync({
+        address: TORCH_CHALLENGE_ADDRESS,
+        abi: torchChallengeAbi,
+        functionName: "launchRocket",
+        chainId: SEPOLIA_CHAIN_ID,
+      });
+
+      setMessage("Rocket launch submitted. Waiting for confirmation...");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not launch the rocket.",
+      );
+    }
   }
 
   return (
@@ -202,25 +236,27 @@ const totalPoints =
         <p className="text-sm font-bold uppercase tracking-[0.3em] text-cyan-300">
           SpaceTorch Mission Control
         </p>
+
         <h2 className="mt-3 text-3xl font-black sm:text-4xl">
           🚀 Fuel the Rocket
         </h2>
+
         <p className="mx-auto mt-3 max-w-xl text-slate-300">
-          Win Coin Flip rounds, collect fuel, launch your rocket, and level up
-          with your Torch Challenge score.
+          Win Coin Flip rounds, collect Rocket Fuel, launch your rocket,
+          and level up with your Torch Challenge score.
         </p>
-      
       </div>
 
-      {/* TORCH balance from Sepolia */}
+      {/* TORCH balance */}
       <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-slate-900/80 p-4 text-center">
-        <p className="text-sm text-slate-300">
-          Your TORCH Balance
-        </p>
+        <p className="text-sm text-slate-300">Your TORCH Balance</p>
 
         <p className="mt-1 text-2xl font-black text-cyan-300">
           {torchBalance !== undefined
-            ? (Number(torchBalance) / 1e18).toLocaleString()
+            ? Number(formatEther(torchBalance)).toLocaleString(
+                undefined,
+                { maximumFractionDigits: 2 },
+              )
             : "—"}{" "}
           TORCH
         </p>
@@ -238,14 +274,27 @@ const totalPoints =
         )}
       </div>
 
+      {/* Game statistics */}
       <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-
-        <Stat label="Rocket Fuel" value={`${fuel}/${FUEL_TO_LAUNCH}`} />
-        <Stat label="Rocket Launches" value={String(launches)} />
-        <Stat label="Total Points" value={String(totalPoints)} />
-        <Stat label="Pilot Level" value={String(level)} />
+        <Stat
+          label="Rocket Fuel"
+          value={`${fuel}/${FUEL_TO_LAUNCH}`}
+        />
+        <Stat
+          label="Rocket Launches"
+          value={String(launches)}
+        />
+        <Stat
+          label="Total Points"
+          value={String(totalPoints)}
+        />
+        <Stat
+          label="Pilot Level"
+          value={String(level)}
+        />
       </div>
 
+      {/* Progress bars */}
       <div className="mt-6 rounded-2xl bg-slate-900 p-4">
         <div className="mb-2 flex justify-between gap-3 text-sm">
           <span className="text-slate-300">Fuel Tank</span>
@@ -253,6 +302,7 @@ const totalPoints =
             {Math.round(fuelProgress)}%
           </span>
         </div>
+
         <div className="h-4 overflow-hidden rounded-full bg-slate-700">
           <div
             className="h-full rounded-full bg-linear-to-r from-cyan-400 to-purple-500 transition-all duration-500"
@@ -260,12 +310,15 @@ const totalPoints =
           />
         </div>
 
-        <div className="mt-5 mb-2 flex justify-between gap-3 text-sm">
-          <span className="text-slate-300">Progress to Level {level + 1}</span>
+        <div className="mb-2 mt-5 flex justify-between gap-3 text-sm">
+          <span className="text-slate-300">
+            Progress to Level {level + 1}
+          </span>
           <span className="font-bold text-purple-300">
             {pointsIntoLevel}/{POINTS_PER_LEVEL} points
           </span>
         </div>
+
         <div className="h-3 overflow-hidden rounded-full bg-slate-700">
           <div
             className="h-full rounded-full bg-purple-400 transition-all duration-500"
@@ -274,28 +327,34 @@ const totalPoints =
         </div>
       </div>
 
+      {/* Scores and wins */}
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-purple-300/20 bg-purple-950/30 p-4">
-          <p className="text-sm text-slate-300">Torch Challenge Score</p>
+          <p className="text-sm text-slate-300">
+            Torch Challenge Score
+          </p>
           <p className="mt-1 text-2xl font-black text-purple-300">
             {displayedChallengeScore}
           </p>
           <p className="mt-1 text-xs text-slate-400">
-            Read from your existing game contract on Sepolia.
+            Read directly from your Sepolia smart contract.
           </p>
         </div>
+
         <div className="rounded-2xl border border-cyan-300/20 bg-cyan-950/30 p-4">
-          <p className="text-sm text-slate-300">Coin Flip Win Streak</p>
-          <p className="mt-1 text-2xl font-black text-cyan-300">{streak}</p>
+          <p className="text-sm text-slate-300">Coin Flip Wins</p>
+          <p className="mt-1 text-2xl font-black text-cyan-300">
+            {coinWins}
+          </p>
           <p className="mt-1 text-xs text-slate-400">
-            Every 3 consecutive wins earns bonus fuel.
+            Each win earns 10 Rocket Fuel.
           </p>
         </div>
       </div>
 
+      {/* Rocket animation */}
       <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 text-center">
         <div className="relative mt-4 flex h-64 items-end justify-center overflow-hidden rounded-2xl bg-linear-to-b from-indigo-950 via-slate-950 to-black">
-          {/* Stjärnor */}
           <span className="absolute left-[15%] top-[20%] animate-pulse text-cyan-200">
             ✦
           </span>
@@ -309,7 +368,6 @@ const totalPoints =
             ✧
           </span>
 
-          {/* Eld under raketen */}
           {rocketLaunching && (
             <>
               <div className="absolute bottom-8 h-24 w-8 animate-pulse rounded-full bg-orange-400 blur-md" />
@@ -323,10 +381,11 @@ const totalPoints =
             </>
           )}
 
-          {/* Raketenanimation */}
           <div
             className={`relative z-10 text-7xl ${
-              rocketLaunching ? "animate-rocket-launch" : "translate-y-0"
+              rocketLaunching
+                ? "animate-rocket-launch"
+                : "translate-y-0"
             }`}
           >
             🚀
@@ -340,90 +399,86 @@ const totalPoints =
             </div>
           )}
         </div>
-        <p className="font-semibold text-slate-200">
-          {busy ? "Flipping the cosmic coin..." : "Choose your side"}
+
+        <p className="mt-4 font-semibold text-slate-200">
+          {hasPendingFlip
+            ? "Waiting for Chainlink VRF..."
+            : "Choose SUN or MOON in Coin Flip above"}
         </p>
-
-        <div className="mt-5 grid grid-cols-2 gap-4">
-          <button
-            type="button"
-            onClick={() => flipCoin("SUN")}
-            disabled={busy || fuel >= FUEL_TO_LAUNCH}
-            className="rounded-2xl border border-amber-400/40 bg-amber-500/10 p-5 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <span className="block text-4xl">☀️</span>
-            <span className="mt-2 block font-black tracking-widest">SUN</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => flipCoin("MOON")}
-            disabled={busy || fuel >= FUEL_TO_LAUNCH}
-            className="rounded-2xl border border-indigo-400/40 bg-indigo-500/10 p-5 transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <span className="block text-4xl">🌙</span>
-            <span className="mt-2 block font-black tracking-widest">MOON</span>
-          </button>
-        </div>
-
-        {result && (
-          <p className="mt-5 text-lg font-bold">
-            The coin landed on <span className="text-cyan-300">{result}!</span>
-          </p>
-        )}
 
         <p aria-live="polite" className="mt-4 min-h-12 text-sm text-slate-300">
           {message}
         </p>
 
         <p className="text-xs text-slate-400">
-          Correct guess: +{FUEL_PER_WIN} Fuel and +{POINTS_PER_WIN} points.
-          Every {BONUS_EVERY_STREAK} consecutive wins: +{STREAK_BONUS} bonus
-          Fuel.
+          Each correct Coin Flip earns 10 Fuel. Collect 100 Fuel to launch
+          your rocket and earn 100 points.
         </p>
 
         {fuel >= FUEL_TO_LAUNCH && (
           <div className="mt-5 rounded-2xl border border-cyan-300/30 bg-cyan-400/10 p-5">
-            <p className="text-xl font-black text-cyan-300">Fuel tank full!</p>
+            <p className="text-xl font-black text-cyan-300">
+              Fuel tank full!
+            </p>
+
             <p className="mt-2 text-sm text-slate-300">
               Your rocket is ready for launch.
             </p>
+
             <button
               type="button"
               onClick={launchRocket}
-              className="mt-4 w-full rounded-xl bg-linear-to-r from-cyan-500 to-purple-600 px-5 py-3 font-black transition hover:brightness-110"
+              disabled={
+                !isConnected ||
+                !onSepolia ||
+                busy ||
+                rocketLaunching ||
+                Boolean(hasPendingFlip)
+              }
+              className="mt-4 w-full rounded-xl bg-linear-to-r from-cyan-500 to-purple-600 px-5 py-3 font-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              🚀 LAUNCH ROCKET · +{POINTS_PER_LAUNCH} POINTS
+              {isLaunchPending
+                ? "Confirm in wallet..."
+                : launchReceipt.isLoading
+                  ? "Launching..."
+                  : `🚀 LAUNCH ROCKET · +${POINTS_PER_LEVEL} POINTS`}
             </button>
           </div>
         )}
       </div>
 
+      {/* Contract statistics */}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-400">
           Total coin wins:{" "}
-          <span className="font-bold text-cyan-300">{coinWins}</span>
+          <span className="font-bold text-cyan-300">
+            {coinWins}
+          </span>
         </p>
-        <button
-          type="button"
-          onClick={resetRocketProgress}
-          disabled={busy}
-          className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-40"
-        >
-          Reset Rocket Progress
-        </button>
+
+        <p className="text-sm text-slate-400">
+          Rocket launches:{" "}
+          <span className="font-bold text-cyan-300">
+            {launches}
+          </span>
+        </p>
       </div>
 
       <p className="mt-6 text-center text-xs text-slate-500">
-        Rocket Fuel and rocket points are game-only resources. They are not
-        $TORCH tokens. Resetting rocket progress does not reset your contract
-        score.
+        Rocket Fuel and rocket points are game resources, not TORCH tokens.
+        Your progress is stored on the Sepolia blockchain.
       </p>
     </section>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-900 p-4 text-center">
       <p className="text-sm text-slate-400">{label}</p>
@@ -433,3 +488,4 @@ function Stat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+

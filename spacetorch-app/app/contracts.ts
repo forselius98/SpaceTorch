@@ -7,7 +7,7 @@ export const SPACE_TORCH_ADDRESS =
   "0x5f8c9b79bE6ddC16431cF0C90A5c75Eb579Cc01b" as const;
 
 export const TORCH_CHALLENGE_ADDRESS =
-  "0x61e0ae97280D77AdDf89a642d1300D4D4f8707A4" as const;
+  "0x358f90d2B4CFC4f4c389eAeD6050b7abe8154f55" as const;
 
 export const FAUCET_AMOUNT = parseEther("100");
 export const PLAY_COST = parseEther("10");
@@ -59,7 +59,14 @@ export const spaceTorchAbi = [
 export const torchChallengeAbi = [
   {
     type: "function",
-    name: "play",
+    name: "startCoinFlip",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "guessSun", type: "bool" }],
+    outputs: [{ name: "requestId", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "launchRocket",
     stateMutability: "nonpayable",
     inputs: [],
     outputs: [],
@@ -73,10 +80,31 @@ export const torchChallengeAbi = [
   },
   {
     type: "function",
-    name: "PLAY_COST",
+    name: "fuelBalances",
     stateMutability: "view",
-    inputs: [],
+    inputs: [{ name: "", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "totalWins",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "totalLaunches",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "hasPendingFlip",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
   },
 ] as const;
 
